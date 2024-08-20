@@ -173,57 +173,5 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // for (int i = 2; i < argc; i += 2) {
-    //     ip_pairs.push_back({Ip(argv[i]), Ip(argv[i+1]), Mac::nullMac()});
-    // }
-
-    // if (ip_pairs.empty()) {
-    //     fprintf(stderr, "No IP pairs provided. Exiting.\n");
-    //     return -1;
-    // }
-
-    // for (auto& pair : ip_pairs) {
-    //     pair.sender_mac = get_sender_mac(handle, my_mac, my_ip, pair.sender);
-    //     printf("%s\n",::std::string(pair.sender_mac).c_str());
-    //     if (pair.sender_mac == Mac::nullMac()) {
-    //         fprintf(stderr, "couldn't get sender's MAC address for %s\n", std::string(pair.sender).c_str());
-    //         continue;
-    //     }
-    //     send_arp(handle, my_mac, pair.target, pair.sender_mac, pair.sender);
-    // }
-
-    // Ip sender_ip = Ip(argv[2]);
-    // Ip target_ip = Ip(argv[3]);
-
-    // Mac sender_mac = get_sender_mac(handle, my_mac, my_ip, sender_ip);
-    // printf("%s",::std::string(sender_mac).c_str());
-    // if (sender_mac == Mac::nullMac()) {
-    //     fprintf(stderr, "couldn't get sender's MAC address\n");
-    //     return -1;
-    // }
-
-    // int res = send_arp(handle, my_mac, target_ip, sender_mac, sender_ip);
-
-    // EthArpPacket packet;
-
-    // packet.eth_.dmac_ = sender_mac;
-    // packet.eth_.smac_ = my_mac;
-    // packet.eth_.type_ = htons(EthHdr::Arp);
-
-    // packet.arp_.hrd_ = htons(ArpHdr::ETHER);
-    // packet.arp_.pro_ = htons(EthHdr::Ip4);
-    // packet.arp_.hln_ = Mac::SIZE;
-    // packet.arp_.pln_ = Ip::SIZE;
-    // packet.arp_.op_ = htons(ArpHdr::Reply);
-    // packet.arp_.smac_ = my_mac;
-    // packet.arp_.sip_ = htonl(target_ip);
-    // packet.arp_.tmac_ = sender_mac;
-    // packet.arp_.tip_ = htonl(sender_ip);
-
-    // int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
-    // if (res != 0) {
-    //     fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
-    // }
-
     pcap_close(handle);
 }
