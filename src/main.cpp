@@ -1,15 +1,15 @@
 #include <cstdio>
 #include <pcap.h>
-#include "ethhdr.h"
-#include "arphdr.h"
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-#include <netinet/in.h>
-#include <string.h>
 #include <unistd.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 #include <vector>
 #include <unordered_map>
+#include <thread>
+#include <chrono>
+#include "ethhdr.h"
+#include "arphdr.h"
 
 #pragma pack(push, 1)
 struct EthArpPacket final {
@@ -22,6 +22,7 @@ struct IpPair {
     Ip sender;
     Ip target;
     Mac sender_mac;
+    Mac target_mac;
 };
 
 void usage() {
@@ -123,6 +124,10 @@ Mac get_sender_mac(pcap_t* handle, Mac my_mac, Ip my_ip, Ip sender_ip) {
     return Mac::nullMac();
 }
 
+int arp_relay () {
+
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 4 || argc % 2 != 0) {
         usage();
@@ -162,10 +167,25 @@ int main(int argc, char* argv[]) {
         } else {
             sender_mac = known_macs[sender_ip];
         }
-        // printf("%d %s\n",i, std::string(sender_mac).c_str());
-        // printf("%s\n",std::string(target_ip).c_str());
-        ip_pairs.push_back({sender_ip, target_ip, sender_mac});
+
+        Mac target_mac;
+        if (known_macs.find(target_ip) == known_macs.end()) {
+            target_mac = get_sender_mac(handle, my_mac, my_ip, target_ip);
+            if (target_mac == Mac::nullMac()) {
+                fprintf(stderr, "couldn't get sender's MAC address for %s\n", std::string(target_ip).c_str());
+                continue;
+            }
+            known_macs[target_ip] = target_mac;
+        } else {
+            target_mac = known_macs[target_ip];
+        }
+        ip_pairs.push_back({sender_ip, target_ip, sender_mac, target_mac});
         send_arp(handle, my_mac, target_ip, sender_mac, sender_ip);
+        // printf("Sent ARP reply to %s\n", std::string(sender_ip).c_str());
+        // printf("Sent ARP reply to %s\n", std::string(sender_mac).c_str());
+        send_arp(handle, my_mac, sender_ip, target_mac, target_ip);
+        // printf("Sent ARP reply to %s\n", std::string(target_ip).c_str());
+        // printf("Sent ARP reply to %s\n", std::string(target_mac).c_str());
     }
 
     if (ip_pairs.empty()) {
