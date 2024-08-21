@@ -126,19 +126,19 @@ Mac get_sender_mac(pcap_t* handle, Mac my_mac, Ip my_ip, Ip sender_ip) {
 }
 
 // IP 체크섬 계산 함수 (필요한 경우)
-uint16_t calculate_checksum(uint16_t* addr, int len) {
-    long sum = 0;
-    while (len > 1) {
-        sum += *addr++;
-        len -= 2;
-    }
-    if (len == 1) {
-        sum += *(uint8_t*)addr;
-    }
-    sum = (sum >> 16) + (sum & 0xffff);
-    sum += (sum >> 16);
-    return (uint16_t)(~sum);
-}
+// uint16_t calculate_checksum(uint16_t* addr, int len) {
+//     long sum = 0;
+//     while (len > 1) {
+//         sum += *addr++;
+//         len -= 2;
+//     }
+//     if (len == 1) {
+//         sum += *(uint8_t*)addr;
+//     }
+//     sum = (sum >> 16) + (sum & 0xffff);
+//     sum += (sum >> 16);
+//     return (uint16_t)(~sum);
+// }
 
 int arp_relay(pcap_t* handle, Mac my_mac, Ip sender_ip, Ip target_ip, const std::unordered_map<Ip, Mac>& known_macs) {
     struct pcap_pkthdr* header;
@@ -181,9 +181,9 @@ int arp_relay(pcap_t* handle, Mac my_mac, Ip sender_ip, Ip target_ip, const std:
                 new_eth_hdr->dmac_ = dst_mac;
 
                 // IP 체크섬 재계산 (필요한 경우)
-                struct ipv4_header* new_ip_hdr = (struct ipv4_header*)(new_packet + sizeof(EthHdr));
-                new_ip_hdr->checksum = 0;  // 체크섬 필드를 0으로 설정
-                new_ip_hdr->checksum = calculate_checksum((uint16_t*)new_ip_hdr, sizeof(struct ipv4_header));
+                // struct ipv4_header* new_ip_hdr = (struct ipv4_header*)(new_packet + sizeof(EthHdr));
+                // new_ip_hdr->checksum = 0;
+                // new_ip_hdr->checksum = calculate_checksum((uint16_t*)new_ip_hdr, sizeof(struct ipv4_header));
 
                 if (pcap_sendpacket(handle, new_packet, header->len) != 0) {
                     fprintf(stderr, "Failed to relay packet: %s\n", pcap_geterr(handle));
@@ -213,7 +213,7 @@ void arp_spoof_and_relay(pcap_t* handle, Mac my_mac, Ip sender_ip, Ip target_ip,
     // 릴레이 수행
     arp_relay(handle, my_mac, sender_ip, target_ip, known_macs);
 
-    spoof_thread.join();  // 이 부분은 실제로는 도달하지 않습니다 (무한 루프 때문에)
+    spoof_thread.join(); // ARP 스푸핑 스레드 종료
 }
 
 int main(int argc, char* argv[]) {
@@ -283,8 +283,9 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::thread> threads;
     for (const auto& pair : ip_pairs) {
+        // 각 IP 쌍에 대한 스레드 생성
         threads.emplace_back(arp_spoof_and_relay, handle, my_mac, pair.sender, pair.target, std::ref(known_macs));
-    }
+    }   // std::ref를 사용하는 이유는 스레드에 맵의 복사본이 아닌 참조를 전달 -> 모든 스레드가 동일한 맵을 공유하여 메모리를 절약하고 일관성 유지 가능
 
     // 모든 스레드가 완료될 때까지 대기 (실제로는 무한 루프 때문에 여기에 도달하지 않음)
     for (auto& t : threads) {
